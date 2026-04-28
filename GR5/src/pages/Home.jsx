@@ -8,12 +8,17 @@ import {
   CalendarDays,
   Plus,
   X,
+  Images,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
+const getTodayDate = () => {
+  return new Date().toISOString().split("T")[0];
+};
+
 export default function Home() {
   const [prompt, setPrompt] = useState("");
-  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedDate, setSelectedDate] = useState(getTodayDate());
   const [isListening, setIsListening] = useState(false);
   const [uploadedFileName, setUploadedFileName] = useState("");
   const [previewUrl, setPreviewUrl] = useState("");
@@ -23,10 +28,12 @@ export default function Home() {
   const [result, setResult] = useState(null);
 
   const fileInputRef = useRef(null);
+  const recognitionRef = useRef(null);
 
   const navItems = [
     { id: "home", label: "Home", icon: House, path: "/" },
     { id: "newsletter", label: "Newsletter", icon: Newspaper, path: "/newsletter" },
+    { id: "capsules", label: "Capsules", icon: Images, path: "/capsules" },
     { id: "calendar", label: "Calendar", icon: CalendarDays, path: "/calendar" },
   ];
 
@@ -40,11 +47,21 @@ export default function Home() {
     });
   };
 
+  const saveCapsuleToLocalStorage = (capsule) => {
+    const existingCapsules =
+      JSON.parse(localStorage.getItem("wonderCapsules")) || [];
+
+    const updatedCapsules = [capsule, ...existingCapsules];
+
+    localStorage.setItem("wonderCapsules", JSON.stringify(updatedCapsules));
+  };
+
   const canUpload = () => {
     if (!selectedDate) {
       setErrorMessage("Please choose a date before uploading.");
       return false;
     }
+
     return true;
   };
 
@@ -59,17 +76,20 @@ export default function Home() {
     }
 
     const reader = new FileReader();
+
     reader.onloadend = () => {
       setPreviewUrl(reader.result);
       setUploadedFileName(file.name);
       setErrorMessage("");
       setResult(null);
     };
+
     reader.readAsDataURL(file);
   };
 
   const handleUploadAreaClick = () => {
     if (!canUpload()) return;
+
     fileInputRef.current?.click();
   };
 
@@ -93,22 +113,73 @@ export default function Home() {
     setIsProcessing(true);
 
     setTimeout(() => {
-      setResult({
-        description: prompt,
+      const newCapsule = {
+        id: crypto.randomUUID(),
+        caption: prompt.trim(),
         image: previewUrl,
         date: selectedDate,
+        fileName: uploadedFileName,
+        createdAt: new Date().toISOString(),
+      };
+
+      saveCapsuleToLocalStorage(newCapsule);
+
+      setResult({
+        description: newCapsule.caption,
+        image: newCapsule.image,
+        date: newCapsule.date,
       });
+
       setIsProcessing(false);
     }, 1600);
   };
 
   const handleMic = () => {
-    if (isListening) return;
-    setIsListening(true);
-    setTimeout(() => {
-      setPrompt("Test Caption");
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setErrorMessage("Speech recognition is not supported in this browser.");
+      return;
+    }
+
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
       setIsListening(false);
-    }, 1200);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      setErrorMessage("");
+    };
+
+    recognition.onresult = (event) => {
+      const transcript = event.results[0][0].transcript;
+
+      setPrompt((prevPrompt) => {
+        if (!prevPrompt.trim()) return transcript;
+        return `${prevPrompt.trim()} ${transcript}`;
+      });
+    };
+
+    recognition.onerror = () => {
+      setErrorMessage("Could not capture your voice. Please try again.");
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
   };
 
   const handleFileChange = (event) => {
@@ -166,12 +237,20 @@ export default function Home() {
 
   const handleReset = () => {
     setPrompt("");
-    setSelectedDate("");
+    setSelectedDate(getTodayDate());
     setUploadedFileName("");
     setPreviewUrl("");
     setErrorMessage("");
     setResult(null);
     setIsProcessing(false);
+
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+
+    setIsListening(false);
+
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -179,7 +258,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#f8f6f2] text-[#2f2a26]">
-      <div className="mx-auto flex min-h-screen max-w-[1400px] flex-col px-6 py-4 md:px-10">
+      <div className="mx-auto flex min-h-screen max-w-[1400px] flex-col px-6 pb-28 pt-4 md:px-10">
         <header className="flex justify-center pt-1">
           <motion.h1
             initial={{ opacity: 0, y: -8 }}
@@ -225,7 +304,6 @@ export default function Home() {
                           />
                         </div>
                       </div>
-
                     </div>
 
                     <button
@@ -236,8 +314,8 @@ export default function Home() {
                       onDragLeave={handleDragLeave}
                       onDrop={handleDrop}
                       className={`group flex w-full flex-col items-center justify-center rounded-[34px] border bg-white px-8 py-8 text-center shadow-[0_12px_40px_rgba(55,40,25,0.06)] transition md:min-h-[360px] ${isDragging
-                        ? "border-[#d7a9b9] bg-[#fff7fa] shadow-[0_16px_50px_rgba(55,40,25,0.1)]"
-                        : "border-[#d9d1c6] hover:shadow-[0_16px_50px_rgba(55,40,25,0.1)]"
+                          ? "border-[#d7a9b9] bg-[#fff7fa] shadow-[0_16px_50px_rgba(55,40,25,0.1)]"
+                          : "border-[#d9d1c6] hover:shadow-[0_16px_50px_rgba(55,40,25,0.1)]"
                         }`}
                     >
                       {previewUrl ? (
@@ -276,7 +354,10 @@ export default function Home() {
                       ) : (
                         <>
                           <div className="mb-10 grid h-20 w-20 place-items-center rounded-full border border-[#d8d0c5] text-[#504843] transition group-hover:scale-105 md:h-24 md:w-24">
-                            <Plus className="h-10 w-10 md:h-12 md:w-12" strokeWidth={1.75} />
+                            <Plus
+                              className="h-10 w-10 md:h-12 md:w-12"
+                              strokeWidth={1.75}
+                            />
                           </div>
 
                           <div className="space-y-1 text-[#433d38]">
@@ -319,8 +400,8 @@ export default function Home() {
                           type="button"
                           onClick={handleMic}
                           className={`grid h-12 w-12 place-items-center rounded-full border transition ${isListening
-                            ? "border-[#d86d88] bg-[#ffe4ee] text-[#b34f6c]"
-                            : "border-[#ddd5ca] bg-[#faf8f4] text-[#6f665d] hover:bg-[#f2ece4]"
+                              ? "border-[#d86d88] bg-[#ffe4ee] text-[#b34f6c]"
+                              : "border-[#ddd5ca] bg-[#faf8f4] text-[#6f665d] hover:bg-[#f2ece4]"
                             }`}
                           aria-label="Use voice input"
                         >
@@ -379,12 +460,16 @@ export default function Home() {
                       <p className="text-sm uppercase tracking-[0.28em] text-[#8c837a]">
                         Generated Capsule
                       </p>
+
                       <p className="text-base leading-8 text-[#5f5851]">
                         <span className="font-medium text-[#3b3531]">Date:</span>{" "}
                         {formatDisplayDate(result.date)}
                       </p>
+
                       <p className="text-base leading-8 text-[#5f5851]">
-                        <span className="font-medium text-[#3b3531]">Caption:</span>{" "}
+                        <span className="font-medium text-[#3b3531]">
+                          Caption:
+                        </span>{" "}
                         {result.description}
                       </p>
                     </div>
@@ -405,8 +490,8 @@ export default function Home() {
           </div>
         </main>
 
-        <footer className="mt-auto pb-2 pt-3">
-          <nav className="grid grid-cols-3 items-center text-center">
+        <footer className="fixed bottom-0 left-0 right-0 z-40 border-t border-[#ddd5ca] bg-[#f8f6f2]/95 px-6 py-2 backdrop-blur md:px-10">
+          <nav className="mx-auto grid max-w-[1400px] grid-cols-4 items-center text-center">
             {navItems.map((item) => {
               const Icon = item.icon;
 
@@ -414,13 +499,13 @@ export default function Home() {
                 <NavLink
                   key={item.id}
                   to={item.path}
-                  className="flex flex-col items-center justify-center gap-2 py-2 text-base uppercase tracking-[0.22em] text-[#5a534d]"
+                  className="flex flex-col items-center justify-center gap-2 py-2 text-xs uppercase tracking-[0.16em] text-[#5a534d] md:text-base md:tracking-[0.22em]"
                 >
                   {({ isActive }) => (
                     <>
                       <Icon className="h-5 w-5" />
                       {isActive ? (
-                        <span className="rounded-md border border-[#bdb3a8] bg-white px-4 py-1 shadow-sm">
+                        <span className="rounded-md border border-[#bdb3a8] bg-white px-3 py-1 shadow-sm md:px-4">
                           {item.label}
                         </span>
                       ) : (
